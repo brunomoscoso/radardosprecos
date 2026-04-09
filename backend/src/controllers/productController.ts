@@ -6,11 +6,15 @@ import {
     updateExistingProduct,
     deleteExistingProduct
 } from '../services/productService';
+import { validateProductData } from '../validators/productValidator';
 
 
 export function getProducts(req: Request, res: Response): void {
     const products = findAllProducts();
-    res.status(200).json(products);
+    res.status(200).json({
+        success: true,
+        data: products,
+    });
 }
 
 export function getProductById(req: Request, res: Response): void {
@@ -18,51 +22,66 @@ export function getProductById(req: Request, res: Response): void {
     const product = findProductById(id);
 
     if(!product){
-        res.status(404).json({ message: "Produto não encontrado" });
+        res.status(404).json({ 
+            success: false,
+            message: "Produto não encontrado" });
         return;
     }
-    res.status(200).json(product);     
+    res.status(200).json({
+        success: true,
+        data: product
+    });     
 }
 
 export function createProduct(req: Request, res: Response): void {
     const { name, price } = req.body;
 
-    if(!name || typeof name !== "string"){
-        res.status(400).json({ message: "Nome do produto é obrigatório e deve ser uma string" });
-        return;
-    }
-    if(!price || typeof price !== "number"){
-        res.status(400).json({ message: "Preço do produto é obrigatório e deve ser um número" });
+    const error = validateProductData(name, price);
+    if(error.name || error.price){
+        res.status(400).json(
+            {
+                success: false,
+                errors: error
+            });
         return;
     }
 
     const newProduct = createNewProduct(name, price);
 
-    res.status(201).json(newProduct);
+    res.status(201).json({
+        success: true,
+        data: newProduct
+    });
 }
 
 export function updateProduct(req: Request, res: Response): void {
     const id = Number(req.params.id);
     const { name, price } = req.body;
 
-if (!name || typeof name !== 'string') {
-    res.status(400).json({ message: 'O campo name é obrigatório e deve ser texto' });
-    return;
-}
+    const error = validateProductData(name, price);
 
-if (typeof price !== 'number' || price <= 0) {
-    res.status(400).json({ message: 'O campo price deve ser um número maior que zero' });
+if (error.name || error.price) {
+    res.status(400).json({ 
+        success: false,
+        errors: error
+    });
     return;
 }
 
 const updatedProduct = updateExistingProduct(id, name, price);
 
 if (!updatedProduct) {
-    res.status(404).json({ message: "Produto não encontrado" });
+    res.status(404).json({ 
+        success: false,
+        message: "Produto não encontrado" 
+    });
     return;
 }
 
-res.status(200).json(updatedProduct);
+res.status(200).json({
+    success: true,
+    data: updatedProduct
+});
 }
 
 export function deleteProduct(req: Request, res: Response): void {
@@ -71,11 +90,15 @@ export function deleteProduct(req: Request, res: Response): void {
     const deletedProduct = deleteExistingProduct(id);
 
     if (!deletedProduct) {
-        res.status(404).json({ message: "Produto não encontrado" });
-    return;
+        res.status(404).json({ 
+            success: false,
+            message: "Produto não encontrado" 
+        });
+        return;
     }
 
     res.status(200).json({
+        success: true,
         message: 'Produto removido com sucesso',
         product: deletedProduct,
     });
