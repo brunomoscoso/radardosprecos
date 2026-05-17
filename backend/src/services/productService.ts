@@ -1,54 +1,156 @@
-import { Product } from '../types/Product';
+import { connectDB } from "../config/database";
+import { Product } from "../types/Product";
 
-const products : Product[] = [
-    { id: 1, name: "Arroz 5kg", price: 10.99 },
-    { id: 2, name: "Feijão Preto 1kg", price: 20.99 },
-    { id: 3, name: "Farinha", price: 5.49 },
-];
+export async function findAllProducts(): Promise<Product[]> {
+    const db = await connectDB();
 
-export function findAllProducts(): Product[] {
+    const products = await db.all<Product[]>(`
+        SELECT
+            id,
+            nome AS name,
+            categoria AS category,
+            descricao AS description
+        FROM produtos
+        ORDER BY nome ASC
+    `);
+
     return products;
 }
 
-export function findProductById(id: number): Product | undefined {
-    return products.find((product) => product.id === id);
+export async function findProductById(id: number): Promise<Product | undefined> {
+    const db = await connectDB();
+
+    const product = await db.get<Product>(
+        `
+        SELECT
+            id,
+            nome AS name,
+            categoria AS category,
+            descricao AS description
+        FROM produtos
+        WHERE id = ?
+        `,
+        [id]
+    );
+
+    return product;
 }
 
-export function createNewProduct(name: string, price: number): Product {
-    const newProduct: Product = {
-        id: products.length + 1,
-        name,
-        price,
-    };
+export async function findProductByName(name: string): Promise<Product | undefined> {
+    const db = await connectDB();
 
-products.push(newProduct);
-    return newProduct;
+    const product = await db.get<Product>(
+        `
+        SELECT
+            id,
+            nome AS name,
+            categoria AS category,
+            descricao AS description
+        FROM produtos
+        WHERE LOWER(nome) = LOWER(?)
+        `,
+        [name]
+    );
+
+    return product;
 }
 
-export function updateExistingProduct(
+export async function createNewProduct(data: {
+    name: string;
+    category?: string | null;
+    description?: string | null;
+}): Promise<Product> {
+    const db = await connectDB();
+
+    const result = await db.run(
+        `
+        INSERT INTO produtos (nome, categoria, descricao)
+        VALUES (?, ?, ?)
+        `,
+        [data.name, data.category ?? null, data.description ?? null]
+    );
+
+    const newProduct = await db.get<Product>(
+        `
+        SELECT
+            id,
+            nome AS name,
+            categoria AS category,
+            descricao AS description
+        FROM produtos
+        WHERE id = ?
+        `,
+        [result.lastID]
+    );
+
+    return newProduct as Product;
+}
+
+export async function updateExistingProduct(
     id: number,
-    name: string,
-    price: number
-): Product | undefined {
-    const product = products.find((product) => product.id === id);
+    data: {
+        name: string;
+        category?: string | null;
+        description?: string | null;
+    }
+): Promise<Product | undefined> {
+    const db = await connectDB();
+
+    const existingProduct = await db.get(
+        `SELECT id FROM produtos WHERE id = ?`,
+        [id]
+    );
+
+    if (!existingProduct) {
+        return undefined;
+    }
+
+    await db.run(
+        `
+        UPDATE produtos
+        SET nome = ?, categoria = ?, descricao = ?
+        WHERE id = ?
+        `,
+        [data.name, data.category ?? null, data.description ?? null, id]
+    );
+
+    const updatedProduct = await db.get<Product>(
+        `
+        SELECT
+            id,
+            nome AS name,
+            categoria AS category,
+            descricao AS description
+        FROM produtos
+        WHERE id = ?
+        `,
+        [id]
+    );
+
+    return updatedProduct;
+}
+
+export async function deleteExistingProduct(id: number): Promise<Product | undefined> {
+    const db = await connectDB();
+
+    const product = await db.get<Product>(
+        `
+        SELECT
+            id,
+            nome AS name,
+            categoria AS category,
+            descricao AS description
+        FROM produtos
+        WHERE id = ?
+        `,
+        [id]
+    );
 
     if (!product) {
         return undefined;
     }
 
-    product.name = name;
-    product.price = price;
+    await db.run(`DELETE FROM produtos WHERE id = ?`, [id]);
 
     return product;
-}
-
-export function deleteExistingProduct(id: number): Product | undefined {
-    const productIndex = products.findIndex((product) => product.id === id);
-
-    if (productIndex === -1) {
-        return undefined;
-    }
-
-    const deletedProduct = products.splice(productIndex, 1)[0];
-    return deletedProduct;
 }

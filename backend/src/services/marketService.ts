@@ -1,21 +1,39 @@
+import { connectDB } from "../config/database";
 import { Market } from "../types/Market";
 
-const markets: Market[] = [];
+export async function findAllMarkets(): Promise<Market[]> {
+    const db = await connectDB();
 
-export function findAllMarkets(): Market[] {
+    const markets = await db.all<Market[]>(`
+        SELECT * FROM mercados
+    `);
+
     return markets;
 }
 
-export function findMarketById(id: number): Market | undefined {
-    return markets.find((market) => market.id === id);
+export async function findMarketById(id: number): Promise<Market | undefined> {
+    const db = await connectDB();
+
+    const market = await db.get<Market>(
+        `SELECT * FROM mercados WHERE id = ?`,
+        [id]
+    );
+
+    return market;
 }
 
-export function createMarket(data: Omit<Market, "id">): Market {
-    const newMarket: Market = {
-        id: markets.length + 1,
-        ...data,
-    };
+export async function createMarket(data: Omit<Market, "id">): Promise<Market> {
+    const db = await connectDB();
 
-    markets.push(newMarket);
-    return newMarket;
+    const result = await db.run(
+        `INSERT INTO mercados (nome, site, cidade) VALUES (?, ?, ?)`,
+        [data.name, data.website ?? null, data.city ?? null]
+    );
+
+    const newMarket = await db.get<Market>(
+        `SELECT * FROM mercados WHERE id = ?`,
+        [result.lastID]
+    );
+
+    return newMarket as Market;
 }

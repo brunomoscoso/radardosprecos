@@ -5,38 +5,71 @@ import {
     createMarket,
 } from "../services/marketService";
 
-export function getMarkets(req: Request, res: Response): void {
-    const markets = findAllMarkets();
+export async function getMarkets(req: Request, res: Response): Promise<void> {
+    try {
+        const markets = await findAllMarkets();
 
     res.status(200).json({
         success: true,
         data: markets,
     });
+    } catch (error) {
+        console.error("Error fetching markets:", error);
+        res.status(500).json({
+        success: false,
+        message: "Internal server error",
+    });
+    }
 }
 
-export function getMarketById(req: Request, res: Response): void {
-    const id = Number(req.params.id);
+export async function getMarketById(req: Request, res: Response): Promise<void> {
+    try {
+        const id = Number(req.params.id);
 
-    const market = findMarketById(id);
+    if (isNaN(id)) {
+        res.status(400).json({
+            success: false,
+            message: "Invalid market id",
+    });
+        return;
+    }
+
+    const market = await findMarketById(id);
 
     if (!market) {
-    res.status(404).json({
-        success: false,
-        message: "Market not found",
-    });
-    return;
+        res.status(404).json({
+            success: false,
+            message: "Market not found",
+        });
+        return;
     }
 
     res.status(200).json({
         success: true,
         data: market,
     });
+    } catch (error) {
+        console.error("Error fetching market:", error);
+        res.status(500).json({
+        success: false,
+        message: "Internal server error",
+    });
+    }
 }
 
-export function postMarket(req: Request, res: Response): void {
-    const { name, city, website } = req.body;
+export async function postMarket(req: Request, res: Response): Promise<void> {
+    try {
+        const { name, city, website } = req.body;
 
-    const newMarket = createMarket({
+    if (!name || !city || !website) {
+        res.status(400).json({
+        success: false,
+        message: "name, city and website are required",
+        });
+        return;
+    }
+
+    const newMarket = await createMarket({
         name,
         city,
         website,
@@ -47,4 +80,11 @@ export function postMarket(req: Request, res: Response): void {
         message: "Market created successfully",
         data: newMarket,
     });
+    } catch (error) {
+    console.error("Error creating market:", error);
+    res.status(500).json({
+        success: false,
+        message: "Internal server error",
+    });
+    }
 }

@@ -1,20 +1,30 @@
 export interface ProductValidationErrors {
     name?: string;
-    price?: string;
+    category?: string;
+    description?: string;
 }
 
 export function validateProductData(
     name: unknown,
-    price: unknown
+    category?: unknown,
+    description?: unknown
 ): ProductValidationErrors {
     const errors: ProductValidationErrors = {};
 
-    if (!name || typeof name !== 'string') {
-        errors.name = 'Nome do produto é obrigatório e deve ser uma string';
+    if (!name || typeof name !== "string" || !name.trim()) {
+        errors.name = "Nome do produto é obrigatório e deve ser uma string válida";
     }
 
-    if (typeof price !== 'number' || price <= 0) {
-        errors.price = 'Preço do produto é obrigatório e deve ser um número maior que zero';
+    if (category !== undefined && category !== null && typeof category !== "string") {
+        errors.category = "Categoria deve ser uma string";
+    }
+
+    if (
+        description !== undefined &&
+        description !== null &&
+        typeof description !== "string"
+    ) {
+        errors.description = "Descrição deve ser uma string";
     }
 
     return errors;

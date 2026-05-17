@@ -3,6 +3,7 @@ import cors from 'cors';
 import 'dotenv/config';
 
 import routes from './routes';
+import { initDatabase } from './config/initDatabase';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,6 +23,17 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     return res.status(500).json({ message: "Erro interno do servidor" });
 })
 
-app.listen(PORT, () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+async function startServer() {
+    try {
+        await initDatabase();
+
+        app.listen(PORT, () => {
+            console.log(`Servidor rodando em http://localhost:${PORT}`);
+        });
+    } catch (error) {
+        console.error("Erro ao inicializar o banco de dados:", error);
+        process.exit(1);
+    }
+}
+
+startServer();
