@@ -85,11 +85,9 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="/"><span className="radar-mark" aria-hidden="true">◉</span> Radar dos Preços</a>
-        <span className="country">PORTUGAL · EUR</span>
       </header>
       <main>
         <section className="intro">
-          <p className="eyebrow">SUA COMPRA, BEM COMPARADA</p>
           <h1>Uma cesta.<br /><span>Mais economia.</span></h1>
           <p>Escolha o essencial e acompanhe os preços do Continente e do Pingo Doce, lado a lado.</p>
         </section>
@@ -116,16 +114,11 @@ export default function App() {
               {!options.length && <p>Nenhum produto disponível. Verifique a inicialização da API.</p>}
               <button className="primary" onClick={save} disabled={!!busy || !dirty}>{busy === 'save' ? 'Salvando…' : 'Salvar cesta'}</button>
               <p className="small muted">{dirty ? 'Há alterações por salvar.' : 'Seleção salva para as próximas coletas.'}</p>
-              <div className="schedule">
-                <span className="eyebrow">PRÓXIMAS CONSULTAS</span>
-                <strong>{collections?.schedule.enabled ? collections.schedule.times.join(' e ') : 'Agendamento desativado'}</strong>
-                <span className="small muted">{timeZone} · com o servidor em execução</span>
-              </div>
             </aside>
 
             <section className="results" aria-label="Comparação de preços">
               <div className="results-header">
-                <div><p className="eyebrow">CONTINENTE × PINGO DOCE</p><h2>Onde sua cesta custa menos?</h2></div>
+                <div><h2>Onde sua cesta custa menos?</h2></div>
                 <button className="secondary" onClick={collect} disabled={!!busy || running || dirty || !saved.length}>{running ? 'Coleta em andamento…' : 'Consultar agora'}</button>
               </div>
               {dirty ? <div className="panel empty"><h3>Salve sua nova seleção</h3><p>A comparação e as próximas coletas usarão os produtos salvos.</p></div> :
@@ -158,16 +151,11 @@ export default function App() {
                         </li>)}</ul>
                       </article>)}
                     </div>
-                    <p className="small muted comparison-note">A comparação usa preços válidos com até {comparison.maxAgeHours} horas. Preços históricos continuam visíveis como referência. Marcas podem variar; portes, disponibilidade na entrega e descontos de fidelização não estão incluídos.</p>
                   </>}
-              {collections?.runs.length > 0 && <section className="panel history"><h3>Última consulta</h3><p>{labels[collections.runs[0].status]} · {date(collections.runs[0].startedAt)}</p>
-                <details><summary>Ver resultados por produto</summary><ul>{collections.results.map(result => <li key={`${result.collectionId}-${result.productId}`}><strong>{result.marketName} · {result.productName}</strong>: {labels[result.status]}{result.error || result.collectionError ? ` — ${result.error || result.collectionError}` : ''}</li>)}</ul></details>
-              </section>}
             </section>
           </div>
         )}
       </main>
-      <footer>Radar dos Preços <span>Escolhas informadas para as compras do dia a dia.</span></footer>
     </div>
   )
 }
