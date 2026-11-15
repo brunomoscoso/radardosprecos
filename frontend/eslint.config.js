@@ -1,3 +1,4 @@
+// Define as regras do ESLint para o código JavaScript e React do front-end.
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'

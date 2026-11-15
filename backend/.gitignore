@@ -1,2 +1,11 @@
+# Exclui dependências instaladas, configurações locais e arquivos de banco temporários.
 node_modules/
+database/backups/
 .env
+dist/
+.env.*
+!.env.example
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+artifacts/

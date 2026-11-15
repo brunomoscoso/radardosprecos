@@ -1,39 +1,17 @@
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
+// Inicializa o banco e os serviços agendados antes de iniciar o servidor HTTP.
 import 'dotenv/config';
-
-import routes from './routes';
+import { app } from './app';
 import { initDatabase } from './config/initDatabase';
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// middleware
-app.use(cors());
-app.use(express.json());
-
-// registra as rotas
-app.use(routes);
-
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    if(err instanceof SyntaxError && 'body' in err){
-        return res.status(400).json({ message: "JSON inválido" });
-    }
-
-    return res.status(500).json({ message: "Erro interno do servidor" });
-})
-
+import { recoverInterruptedRuns } from './services/collectionService';
+import { startScheduler } from './services/schedulerService';
 async function startServer() {
-    try {
-        await initDatabase();
-
-        app.listen(PORT, () => {
-            console.log(`Servidor rodando em http://localhost:${PORT}`);
-        });
-    } catch (error) {
-        console.error("Erro ao inicializar o banco de dados:", error);
-        process.exit(1);
-    }
+    await initDatabase();
+    await recoverInterruptedRuns();
+    const stopScheduler = startScheduler();
+    const port = Number(process.env.PORT || 3000);
+    const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Servidor rodando em http://localhost:${port}`));
+    const shutdown = () => { stopScheduler(); server.close(); };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
 }
-
-startServer();
+startServer().catch(error => { console.error('Erro ao iniciar servidor:', error); process.exitCode = 1; });

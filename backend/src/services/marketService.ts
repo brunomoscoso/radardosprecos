@@ -1,39 +1,8 @@
-import { connectDB } from "../config/database";
-import { Market } from "../types/Market";
-
-export async function findAllMarkets(): Promise<Market[]> {
-    const db = await connectDB();
-
-    const markets = await db.all<Market[]>(`
-        SELECT * FROM mercados
-    `);
-
-    return markets;
-}
-
-export async function findMarketById(id: number): Promise<Market | undefined> {
-    const db = await connectDB();
-
-    const market = await db.get<Market>(
-        `SELECT * FROM mercados WHERE id = ?`,
-        [id]
-    );
-
-    return market;
-}
-
-export async function createMarket(data: Omit<Market, "id">): Promise<Market> {
-    const db = await connectDB();
-
-    const result = await db.run(
-        `INSERT INTO mercados (nome, site, cidade) VALUES (?, ?, ?)`,
-        [data.name, data.website ?? null, data.city ?? null]
-    );
-
-    const newMarket = await db.get<Market>(
-        `SELECT * FROM mercados WHERE id = ?`,
-        [result.lastID]
-    );
-
-    return newMarket as Market;
+import { withDB, DatabaseConnection } from '../config/database';
+import { Market } from '../types/Market';
+// Consulta os mercados usados na comparação.
+const columns = 'id, nome name, site website, scraper_key scraperKey';
+export async function findAllMarkets(connection?: DatabaseConnection): Promise<Market[]> {
+    const query = (db: DatabaseConnection) => db.all<Market[]>(`SELECT ${columns} FROM mercados ORDER BY id`);
+    return connection ? query(connection) : withDB(query);
 }

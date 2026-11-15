@@ -1,2 +1,9 @@
+# Exclui dependências, builds, configurações locais e artefatos de teste.
 node_modules/
 .env
+dist/
+.env.*
+!.env.example
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm

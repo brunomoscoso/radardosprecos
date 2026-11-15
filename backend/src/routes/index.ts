@@ -1,18 +1,20 @@
 import { Router } from 'express';
-import { home } from '../controllers/homeController';
+import { findAllProducts } from '../services/productService';
+import { findAllMarkets } from '../services/marketService';
+import { findAllPrices } from '../services/priceService';
+import { compareBasket } from '../services/compareService';
 import { health } from '../controllers/healthController';
-import productRoutes from './productRoutes';
-import marketRoutes from "./marketRoutes";
-import priceRoutes from "./priceRoutes";
-import compareRoutes from "./compareRoutes";
+import { getSelectedBasket, putSelectedBasket } from '../controllers/basketController';
+import { getCollectionStatus, postCollection } from '../controllers/collectionController';
 
 const router = Router();
-
-router.get('/', home);
 router.get('/health', health);
-router.use('/products', productRoutes);
-router.use("/markets", marketRoutes);
-router.use("/prices", priceRoutes);
-router.use("/compare", compareRoutes);
-
+router.get('/products', async (_req, res) => { res.json({ success: true, data: await findAllProducts() }); });
+router.get('/markets', async (_req, res) => { res.json({ success: true, data: await findAllMarkets() }); });
+router.get('/prices', async (_req, res) => { res.json({ success: true, data: await findAllPrices() }); });
+router.get('/compare/basket', async (_req, res) => { res.json({ success: true, data: await compareBasket() }); });
+router.get('/basket', getSelectedBasket);
+router.put('/basket', putSelectedBasket);
+router.get('/collections', getCollectionStatus);
+router.post('/collections', postCollection);
 export default router;

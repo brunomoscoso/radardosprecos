@@ -1,56 +1,14 @@
-import { chromium } from "playwright";
-import { MercadoAPage } from "../pages/mercadoAPage";
-import { productsToSearch } from "../config/products";
-import { cleanText, parsePrice } from "../helpers/normalizeProductData";
-import {
-    saveScrapedData,
-    clearPreviousScraperData,
-} from "../../services/scraperPersistenceService";
+import { Scraper, chooseOffer } from './shared';
+import { HttpSession } from '../helpers/httpSession';
+import { parseOffers } from '../helpers/parseOffers';
 
-export async function scrapeMercadoA(): Promise<void> {
-    const browser = await chromium.launch({ headless: false });
-    const page = await browser.newPage();
-
-    const mercadoAPage = new MercadoAPage(page);
-
-try {
-    await page.goto("https://www.continente.pt/", {
-        waitUntil: "domcontentloaded",
-    });
-
-    console.log("Site carregado com sucesso.");
-
-    await mercadoAPage.acceptCookies();
-    await clearPreviousScraperData();
-
-    const currentCollectionDate = new Date().toISOString();
-
-    for (const product of productsToSearch) {
-        console.log(`Iniciando busca por: ${product}`);
-
-        await mercadoAPage.searchProduct(product);
-        await mercadoAPage.waitForResults();
-        await mercadoAPage.acceptCookies();
-        await mercadoAPage.clickLowestPriceSearch();
-        await mercadoAPage.selectLowestPrice();
-
-        const productData = await mercadoAPage.getFirstProductData();
-
-        const normalizedData = {
-            searchedProduct: product,
-            productName: cleanText(productData.productName),
-            price: parsePrice(productData.productPrice),
-            marketId: 1,
-            collectedAt: currentCollectionDate,
-        };
-
-        console.log("Resultado coletado:", normalizedData);
-        await saveScrapedData(normalizedData);
-        console.log("Dados salvos no banco com sucesso.");
+export const scrapeMercadoA: Scraper = async (products, save, fail) => {
+    const session = new HttpSession('https://www.continente.pt');
+    for (const product of products) {
+        try {
+            const params = new URLSearchParams({ q: product.name, cgid: 'col-produtos', start: '0', sz: '24', pmin: '0.01' });
+            const response = await session.get('/on/demandware.store/Sites-continente-Site/default/Search-ShowAjax?' + params);
+            await save(chooseOffer(product, parseOffers(await response.text(), 'continente')));
+        } catch (error) { await fail(product.id, error instanceof Error ? error.message : String(error)); }
     }
-}   catch (error) {
-        console.error("Erro ao executar scraper do Mercado A:", error);
-    } finally {
-        await browser.close();
-    }
-}
+};
