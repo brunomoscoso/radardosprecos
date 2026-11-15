@@ -211,7 +211,8 @@ main {
 }
 
 .market.best {
-  border:2px solid #4b8c59
+  border:2px solid #4b8c59;
+  background:#f1f8ef
 }
 
 .tag {

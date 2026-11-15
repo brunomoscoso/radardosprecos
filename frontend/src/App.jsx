@@ -51,6 +51,11 @@ export default function App() {
     const timer = setInterval(() => { refresh().catch(cause => setError(cause.message)) }, 15000)
     return () => clearInterval(timer)
   }, [refresh])
+  useEffect(() => {
+    if (!notice || notice.startsWith('Consultando os mercados.')) return
+    const timer = setTimeout(() => setNotice(''), 5000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   async function save() {
     setBusy('save'); setError(''); setNotice('')
@@ -69,6 +74,7 @@ export default function App() {
       setNotice(result.message)
       await refresh()
     } catch (cause) {
+      setNotice('')
       setError(cause.message + ' Consulte o estado da coleta antes de tentar novamente.')
       await refresh().catch(() => {})
     } finally { setBusy('') }
