@@ -10,7 +10,8 @@ import { productsToSearch, basketReplacements } from '../src/scrapers/config/pro
 import { findAllProducts } from '../src/services/productService';
 import { findAllMarkets } from '../src/services/marketService';
 import { getBasket, saveBasket } from '../src/services/basketService';
-import { compareBasket } from '../src/services/compareService';
+import { compareBasket, compareSelectedProducts } from '../src/services/compareService';
+import { carryForwardPrices } from '../src/services/staticSnapshotService';
 import { findAllPrices } from '../src/services/priceService';
 import { finishCollection, saveScrapedData, startCollection } from '../src/services/scraperPersistenceService';
 import { CollectionBusyError, getCollections, recoverInterruptedRuns, runCollection as runCatalogCollection, ScheduleAlreadyRunError } from '../src/services/collectionService';
@@ -109,6 +110,29 @@ test('coleta padrão atualiza o catálogo inteiro sem depender de uma cesta comp
     assert.equal(result.status, 'sucesso');
     assert.equal((await withDB(db => db.get('SELECT COUNT(*) n FROM coleta_resultados'))).n, productsToSearch.length * 2);
     assert.equal((await findAllPrices()).length, productsToSearch.length * 2);
+});
+
+test('snapshot mantém o último preço em falhas sem incluí-lo na comparação', async () => {
+    const product = (await findAllProducts())[0];
+    await runCatalogCollection('teste', undefined, adapters);
+    const previous = await compareSelectedProducts([product.id]);
+
+    process.env.DATABASE_PATH = path.join(directory, 'fresh.sqlite');
+    await initDatabase();
+    const collection = await runCatalogCollection('teste', undefined, { continente: fail, 'pingo-doce': fail });
+    assert.equal(collection.status, 'erro');
+    const current = await compareSelectedProducts([product.id]);
+    const snapshot = carryForwardPrices(current, previous);
+
+    for (const market of snapshot.markets) {
+        const previousMarket = previous.markets.find(candidate => candidate.id === market.id)!;
+        assert.equal(market.items[0].price?.price, previousMarket.items[0].price?.price);
+        assert.equal(market.items[0].usable, false);
+        assert.match(market.items[0].priceWarning || '', /fora do total comparável/i);
+        assert.equal(market.total, null);
+        assert.equal(market.savedItemCount, 1);
+    }
+    assert.deepEqual(snapshot.cheapestMarketIds, []);
 });
 
 test('migração preserva registros legados e não associa mercado órfão ao seed', async () => {

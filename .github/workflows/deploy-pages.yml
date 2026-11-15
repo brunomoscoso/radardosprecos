@@ -1,0 +1,63 @@
+name: Update data and deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 8,20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - uses: actions/configure-pages@v5
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Collect prices and create snapshot
+        working-directory: backend
+        env:
+          DATABASE_PATH: ${{ runner.temp }}/radar.sqlite
+          PINGO_DOCE_POSTAL_CODE: ${{ secrets.PINGO_DOCE_POSTAL_CODE }}
+          PREVIOUS_SNAPSHOT_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/prices.json
+        run: npm run snapshot
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

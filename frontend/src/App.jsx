@@ -5,6 +5,59 @@ import './App.css'
 
 const money = value => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(value)
 const labels = { sucesso: 'Concluída', parcial: 'Com falhas', erro: 'Falhou', em_andamento: 'Em andamento', sem_coleta: 'Sem coleta' }
+
+async function fetchSnapshot() {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/prices.json?updated=${Date.now()}`, { cache: 'no-store' })
+  if (!response.ok) throw new Error(`Não foi possível carregar os preços publicados (HTTP ${response.status}).`)
+  let payload
+  try { payload = await response.json() } catch { throw new Error('O arquivo de preços publicado está inválido.') }
+  if (!payload?.comparison || !Array.isArray(payload.comparison.products) || !Array.isArray(payload.comparison.markets)) {
+    throw new Error('O arquivo de preços publicado tem um formato inválido.')
+  }
+  return payload.comparison
+}
+
+function compareSelection(snapshot, productIds) {
+  const selectedIds = new Set(productIds)
+  const products = snapshot.products.filter(product => selectedIds.has(product.id))
+  const markets = snapshot.markets.map(market => {
+    const items = products.map(product => {
+      const item = market.items.find(candidate => candidate.product.id === product.id)
+      if (!item) throw new Error(`O snapshot não contém ${product.name} para ${market.name}.`)
+      return item
+    })
+    const complete = products.length > 0 && items.every(item => item.usable)
+    const subtotal = items.filter(item => item.usable).reduce((sum, item) => sum + Math.round(item.price.price * 100), 0) / 100
+    const savedItems = items.filter(item => item.price)
+    const savedSubtotal = savedItems.reduce((sum, item) => sum + Math.round(item.price.price * 100), 0) / 100
+    return {
+      ...market,
+      items,
+      missingProducts: items.filter(item => !item.usable).map(item => item.product),
+      complete,
+      subtotal,
+      savedSubtotal,
+      savedItemCount: savedItems.length,
+      total: complete ? subtotal : null,
+    }
+  })
+  const incompatibleProducts = products.filter(product => {
+    const quantities = markets
+      .map(market => market.items.find(item => item.product.id === product.id))
+      .filter(item => item?.usable)
+      .map(item => item.price.quantity)
+    return new Set(quantities).size > 1
+  })
+  const comparable = markets.length >= 2 && markets.every(market => market.complete) && incompatibleProducts.length === 0
+  const minimum = comparable ? Math.min(...markets.map(market => market.total)) : null
+  return {
+    products,
+    markets,
+    incompatibleProducts,
+    cheapestMarketIds: comparable ? markets.filter(market => market.total === minimum).map(market => market.id) : [],
+  }
+}
+
 function collectionErrorMessage(message) {
   if (/Executable doesn't exist/i.test(message)) return 'A última atualização falhou porque o navegador de coleta não estava instalado.'
   if (/PINGO_DOCE_POSTAL_CODE/i.test(message)) return 'A última atualização falhou porque a localização do Pingo Doce não estava configurada.'
@@ -16,9 +69,9 @@ export default function App() {
   const [products, setProducts] = useState([])
   const [selected, setSelected] = useState([])
   const [saved, setSaved] = useState([])
+  const [snapshot, setSnapshot] = useState(null)
   const [comparison, setComparison] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const dirty = [...selected].sort((a, b) => a - b).join() !== [...saved].sort((a, b) => a - b).join()
@@ -34,41 +87,65 @@ export default function App() {
     setLoading(true)
     setError('')
     try {
-      const catalog = await api('/products')
-      setProducts(catalog.data)
+      let availableProducts
+      let publishedSnapshot = null
+      if (import.meta.env.DEV) {
+        availableProducts = (await api('/products')).data
+        setProducts(availableProducts)
+      } else {
+        publishedSnapshot = await fetchSnapshot()
+        availableProducts = publishedSnapshot.products
+        setSnapshot(publishedSnapshot)
+        setProducts(availableProducts)
+      }
       const stored = JSON.parse(window.localStorage.getItem('radar-basket-product-ids') || '[]')
       if (!Array.isArray(stored) || stored.length > 100 || stored.some(id => !Number.isSafeInteger(id) || id <= 0)
         || new Set(stored).size !== stored.length) throw new Error('A seleção salva neste navegador está inválida.')
-      const available = new Set(catalog.data.filter(product => product.basketOption).map(product => product.id))
+      const available = new Set(availableProducts.filter(product => product.basketOption).map(product => product.id))
       const productIds = stored.filter(id => available.has(id))
       setSelected(productIds)
       setSaved(productIds)
-      await refresh(productIds)
-    } catch (cause) { setError(cause.message || 'Não foi possível conectar à API.') }
+      if (publishedSnapshot) setComparison(compareSelection(publishedSnapshot, productIds))
+      else await refresh(productIds)
+    } catch (cause) { setError(cause.message || 'Não foi possível carregar os preços publicados.') }
     finally { setLoading(false) }
   }, [refresh])
 
   useEffect(() => { void load() }, [load])
   useEffect(() => {
-    const timer = setInterval(() => { refresh(saved).catch(cause => setError(cause.message)) }, 60000)
+    const timer = setInterval(() => {
+      if (import.meta.env.DEV) {
+        refresh(saved).catch(cause => setError(cause.message))
+      } else {
+        fetchSnapshot()
+          .then(next => {
+            setSnapshot(next)
+            setProducts(next.products)
+            setComparison(compareSelection(next, saved))
+            setError('')
+          })
+          .catch(cause => setError(cause.message))
+      }
+    }, 60000)
     return () => clearInterval(timer)
   }, [refresh, saved])
   useEffect(() => {
-    if (!notice || notice.startsWith('Consultando os mercados.')) return
+    if (!notice) return
     const timer = setTimeout(() => setNotice(''), 5000)
     return () => clearTimeout(timer)
   }, [notice])
 
   async function save() {
-    setBusy('save'); setError(''); setNotice('')
+    setError('')
+    setNotice('')
     try {
       const productIds = [...selected]
       window.localStorage.setItem('radar-basket-product-ids', JSON.stringify(productIds))
       setSaved(productIds)
       setNotice('Cesta salva neste navegador.')
-      await refresh(productIds)
-    } catch (cause) { setNotice(''); setError(cause.message) }
-    finally { setBusy('') }
+      if (import.meta.env.DEV) await refresh(productIds)
+      else if (snapshot) setComparison(compareSelection(snapshot, productIds))
+    } catch (cause) { setError(cause.message || 'Não foi possível salvar a cesta neste navegador.') }
   }
   function toggle(id) {
     setNotice('')
@@ -81,7 +158,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/"><span className="radar-mark" aria-hidden="true">◉</span> Radar dos Preços</a>
+        <a className="brand" href={import.meta.env.BASE_URL}><span className="radar-mark" aria-hidden="true">◉</span> Radar dos Preços</a>
       </header>
       <main>
         <section className="intro">
@@ -89,7 +166,7 @@ export default function App() {
           <p>Escolha o essencial e acompanhe os preços do Continente e do Pingo Doce, lado a lado.</p>
         </section>
 
-        {error && <div className="alert error" role="alert">{error} <button className="text-button" onClick={load} disabled={!!busy}>Tentar novamente</button></div>}
+        {error && <div className="alert error" role="alert">{error} <button className="text-button" onClick={load}>Tentar novamente</button></div>}
         {notice && <div className="alert" role="status">{notice}</div>}
 
         {loading ? <div className="panel loading" role="status">Carregando sua cesta e os últimos preços…</div> : (
@@ -98,18 +175,18 @@ export default function App() {
               <div className="section-heading"><h2>Sua cesta básica</h2><span className="count">{selected.length}</span></div>
               <p className="muted">Uma embalagem de cada produto selecionado.</p>
               <div className="selection-tools">
-                <button className="text-button" disabled={!!busy} onClick={() => setSelected(options.map(p => p.id))}>Selecionar todos</button>
-                <button className="text-button" disabled={!!busy} onClick={() => setSelected([])}>Limpar</button>
+                <button className="text-button" onClick={() => setSelected(options.map(p => p.id))}>Selecionar todos</button>
+                <button className="text-button" onClick={() => setSelected([])}>Limpar</button>
               </div>
-              <fieldset disabled={!!busy}>
+              <fieldset>
                 <legend className="sr-only">Produtos da cesta básica</legend>
                 {options.map(product => <label className="product-option" key={product.id}>
                   <input type="checkbox" checked={selected.includes(product.id)} onChange={() => toggle(product.id)} />
                   <span>{product.name}</span>
                 </label>)}
               </fieldset>
-              {!options.length && <p>Nenhum produto disponível. Verifique a inicialização da API.</p>}
-              <button className="primary" onClick={save} disabled={!!busy || !dirty}>{busy === 'save' ? 'Salvando…' : 'Salvar cesta'}</button>
+              {!options.length && <p>{import.meta.env.DEV ? 'Nenhum produto disponível. Verifique a inicialização da API.' : 'Nenhum produto disponível no snapshot publicado.'}</p>}
+              <button className="primary" onClick={save} disabled={!dirty}>Salvar cesta</button>
               <p className="small muted">{dirty ? 'Há alterações por salvar.' : 'Seleção salva neste navegador.'}</p>
             </aside>
 

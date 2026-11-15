@@ -29,32 +29,46 @@ Abra a URL indicada pelo Vite, normalmente http://localhost:5173. Selecione os p
 A cesta inicial usa embalagens fixas: arroz agulha 1 kg, feijão manteiga 500 g (exclui cozido), leite UHT meio-gordo 1 L, óleo de girassol 1 L, açúcar branco 1 kg, massa esparguete 500 g, farinha de trigo T55 sem fermento 1 kg, sal fino 250 g e manteiga com sal 250 g. As marcas podem variar. Variantes alimentares não pedidas e embalagens promocionais de quantidade ambígua são recusadas. A atualização transfere as seleções antigas para estes itens sem reutilizar os seus preços antigos.
 
 - A seleção da cesta fica no armazenamento local do navegador; visitantes diferentes não alteram a seleção uns dos outros.
-- O agendamento pesquisa todos os produtos do catálogo às 08:00 e 20:00, no fuso Europe/Lisbon. O backend precisa de estar ligado; horários perdidos não são recuperados.
+- No site publicado, o GitHub Actions pesquisa todo o catálogo às 08:00 e 20:00 UTC e republica um snapshot estático. O horário pode atrasar; no horário de verão, corresponde a 09:00 e 21:00 em Lisboa.
 - O Pingo Doce exige confirmação do código postal com entrega em casa. Escolha de loja não é suportada.
 - Os preços apresentados do Pingo Doce correspondem à localização de entrega configurada no servidor.
 - São extraídos nome, preço da embalagem, quantidade e URL. A comparação exige correspondência verificável e embalagens equivalentes.
-- Produtos ausentes, bloqueios e erros ficam registados por item. O histórico é preservado; preços antigos ou de consultas falhadas não entram no total comparável.
+- A API local mantém o histórico no SQLite. No site estático, cada execução usa um banco temporário e publica apenas o snapshot atual; se uma coleta falhar, o último preço conhecido continua visível, mas não entra no total comparável.
 - Só há vencedor quando ambos os mercados têm todos os itens válidos. Marcas podem variar. Portes e descontos de fidelização não são incluídos.
 - Apenas a primeira página de resultados é analisada. Os endpoints dos sites podem mudar. Embalagens múltiplas e formatos desconhecidos são recusados.
-- A interface consulta os preços guardados a cada 60 segundos; visitantes não iniciam pesquisas nos mercados.
+- A interface atualiza o snapshot a cada 60 segundos; visitantes não iniciam pesquisas nos mercados.
 
-## Configuração do backend
+## Publicar online
+
+O site público usa somente GitHub Actions e GitHub Pages: não é necessário manter um servidor, API ou banco persistente online. O endereço será `https://brunomoscoso.github.io/radardosprecos/`.
+
+1. Em **Settings → Secrets and variables → Actions → New repository secret**, crie `PINGO_DOCE_POSTAL_CODE` com um código postal válido no formato `0000-000`. O valor não é publicado no site.
+2. Em **Settings → Pages**, selecione **GitHub Actions** como origem.
+3. Faça push para `main` ou execute **Actions → Update data and deploy GitHub Pages → Run workflow**. O workflow recolhe os preços, gera o JSON e publica o site.
+
+O workflow também atualiza os dados diariamente às 08:00 e 20:00 UTC; o GitHub pode atrasar execuções agendadas. A comparação é baseada no código postal configurado e não há histórico online persistente. O frontend usa o caminho `/radardosprecos/`; se configurar um domínio personalizado, ajuste o `base` em `frontend/vite.config.js` e `PREVIOUS_SNAPSHOT_URL` no workflow.
+
+## Configuração do backend local
+
+Estas opções são para executar a API localmente; o site do GitHub Pages não usa um backend online.
 
 | Variável | Padrão / finalidade |
 | --- | --- |
 | PORT / HOST | 3000 / 127.0.0.1 |
-| FRONTEND_ORIGIN | http://localhost:5173; várias origens separadas por vírgula |
+| FRONTEND_ORIGIN | http://localhost:5173 |
 | DATABASE_PATH | backend/database/database.sqlite; caminho alternativo opcional |
 | PINGO_DOCE_POSTAL_CODE | Obrigatório, formato 0000-000 |
 | TRUST_PROXY_HOPS | Opcional; saltos de proxy confiáveis para identificar o IP real no rate limit |
-| SCRAPE_ENABLED | true; false desativa o agendamento |
+| SCRAPE_ENABLED | true; false desativa o agendamento local |
 | SCRAPE_TIMEZONE | Europe/Lisbon |
 | SCRAPE_TIMES | 08:00,20:00; dois horários distintos |
 | PRICE_MAX_AGE_HOURS | 36; validade máxima dos preços |
 
-Reinicie o backend depois de alterar o .env. No frontend, VITE_API_URL define a API (padrão http://localhost:3000); alterações exigem reconstruir o build. Não versione ficheiros .env. Faça backup do SQLite antes de alterações operacionais.
+Reinicie o backend depois de alterar o `.env`. No frontend em desenvolvimento, `VITE_API_URL` define a API local (padrão `http://localhost:3000`). Não versione ficheiros `.env`. Faça backup do SQLite antes de alterações operacionais.
 
-## API
+## API local
+
+Estas rotas servem o desenvolvimento local. O site público é estático e lê `data/prices.json`.
 
 | Método e rota | Função |
 | --- | --- |

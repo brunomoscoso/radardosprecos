@@ -86,3 +86,5 @@ export function compareSelectedProducts(value: unknown, now = Date.now()) {
         return catalog.filter(product => selected.has(product.id));
     }, now);
 }
+
+export type ProductComparison = Awaited<ReturnType<typeof compareSelectedProducts>>;
