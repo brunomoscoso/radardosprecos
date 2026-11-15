@@ -13,7 +13,7 @@ import { getBasket, saveBasket } from '../src/services/basketService';
 import { compareBasket } from '../src/services/compareService';
 import { findAllPrices } from '../src/services/priceService';
 import { finishCollection, saveScrapedData, startCollection } from '../src/services/scraperPersistenceService';
-import { CollectionBusyError, getCollections, recoverInterruptedRuns, runCollection, ScheduleAlreadyRunError } from '../src/services/collectionService';
+import { CollectionBusyError, getCollections, recoverInterruptedRuns, runCollection as runCatalogCollection, ScheduleAlreadyRunError } from '../src/services/collectionService';
 import { scheduleConfig, scheduledKey } from '../src/services/schedulerService';
 import { Scraper, chooseOffer } from '../src/scrapers/markets/shared';
 import { scrapeMercadoB } from '../src/scrapers/markets/mercadoB.scraper';
@@ -35,8 +35,11 @@ const fake: Scraper = async (products, save) => {
     for (const product of products) await save({ productId: product.id, productName: product.name, productUrl: 'https://example.test/product', price: 1.1, quantity: '1000g' });
 };
 const fail: Scraper = async () => { throw new Error('Falha simulada do site'); };
-const adapters = { continente: fake, 'pingo-doce': fake };
+const adapters: Record<string, Scraper> = { continente: fake, 'pingo-doce': fake };
 async function select(count = 2) { const p = (await findAllProducts()).slice(0, count); await saveBasket(p.map(x => x.id)); return p; }
+async function runCollection(origin = 'teste', scheduleKey?: string, collectionAdapters: Record<string, Scraper> = adapters) {
+    return runCatalogCollection(origin, scheduleKey, collectionAdapters, await getBasket());
+}
 
 test('farinha sem fermento substitui seleção ambígua sem apagar registros antigos', async () => {
     const oldId = await withDB(async db => {
@@ -66,7 +69,7 @@ test('catálogo específico migra a seleção sem atribuir preços antigos aos n
 test('views mostram cesta sem preços e resultados sem duplicar histórico', async () => {
     await select(2);
     const before = await withDB(db => db.all('SELECT * FROM cesta_precos'));
-    assert.equal(before.length, 4);
+    assert.equal(before.length, productsToSearch.length * 2);
     assert.ok(before.every(r => r.preco === null));
     await runCollection('teste', undefined, adapters);
     assert.equal((await withDB(db => db.all('SELECT * FROM cesta_precos WHERE preco IS NOT NULL'))).length, 4);
@@ -99,6 +102,13 @@ test('migração idempotente e catálogo reutilizado', async () => {
     assert.deepEqual((await findAllProducts()).map(p => p.name).sort(), [...productsToSearch].sort());
     assert.equal((await findAllProducts()).every(p => p.basketOption === 1), true);
     assert.deepEqual(await getBasket(), []);
+});
+
+test('coleta padrão atualiza o catálogo inteiro sem depender de uma cesta compartilhada', async () => {
+    const result = await runCatalogCollection('teste', undefined, adapters);
+    assert.equal(result.status, 'sucesso');
+    assert.equal((await withDB(db => db.get('SELECT COUNT(*) n FROM coleta_resultados'))).n, productsToSearch.length * 2);
+    assert.equal((await findAllPrices()).length, productsToSearch.length * 2);
 });
 
 test('migração preserva registros legados e não associa mercado órfão ao seed', async () => {
@@ -332,7 +342,7 @@ test('normalização não transforma ausência em zero e exige nome e embalagem'
     assert.throws(() => chooseOffer({ id: 1, name: 'Arroz Agulha 1kg' }, [{ name: 'Arroz Agulha', price: '', quantity: '1 kg', url: 'https://example.test/p' }]));
 });
 
-test('API integra catálogo, cesta, preços, comparação, validação e conflito de coleta', async () => {
+test('API pública compara seleções locais e não expõe rotas de escrita ou coleta', async () => {
     const server = app.listen(0, '127.0.0.1');
     await new Promise<void>(resolve => server.once('listening', resolve));
     const port = (server.address() as { port: number }).port;
@@ -340,18 +350,19 @@ test('API integra catálogo, cesta, preços, comparação, validação e conflit
     try {
         const catalog = await (await request('/products')).json() as any;
         assert.equal(catalog.success, true);
-        let response = await request('/basket', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productIds: [catalog.data[0].id] }) });
-        assert.equal(response.status, 200);
-        response = await request('/basket', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"productIds":["bad"]}' });
-        assert.equal(response.status, 400);
-        assert.equal((await (await request('/basket')).json() as any).data.length, 1);
-        response = await request('/basket', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{invalid' });
-        assert.equal(response.status, 400);
+        assert.equal((await request('/basket')).status, 404);
+        assert.equal((await request('/collections')).status, 404);
+        assert.equal((await request('/collections', { method: 'POST' })).status, 404);
+        const selected = await select(2);
         await runCollection('teste', undefined, adapters);
-        assert.equal((await (await request('/prices')).json() as any).data.length, 2);
-        assert.equal((await (await request('/compare/basket')).json() as any).data.comparable, true);
-        await withDB(db => db.run("INSERT INTO execucoes(inicio,status,origem,pid,host) VALUES(?,'em_andamento','teste',?,?)", new Date().toISOString(), process.pid, os.hostname()));
-        response = await request('/collections', { method: 'POST' });
-        assert.equal(response.status, 409);
+        assert.equal((await (await request('/prices')).json() as any).data.length, 4);
+        const comparison = await (await request(`/compare/basket?productIds=${selected[0].id}`)).json() as any;
+        assert.equal(comparison.data.products.length, 1);
+        assert.equal(comparison.data.comparable, true);
+        assert.equal((await request('/compare/basket?productIds=99999')).status, 400);
+        assert.equal((await request('/compare/basket?productIds=1,1')).status, 400);
+        let throttled: Response | undefined;
+        for (let i = 0; i < 120; i++) throttled = await request('/health');
+        assert.equal(throttled?.status, 429);
     } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 });

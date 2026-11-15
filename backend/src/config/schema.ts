@@ -104,14 +104,15 @@ export async function migrateSchema(db: DatabaseConnection) {
     ) SELECT id, productId, collectionId, productName, marketId, marketName, price, productUrl,
         collectedAt, matchedName, quantity, legacy, sourceProductId, sourceMarketId
         FROM ranked WHERE rn=1 ORDER BY productId,marketId`);
-    await db.exec(`CREATE VIEW IF NOT EXISTS cesta_precos AS
+    await db.exec(`DROP VIEW IF EXISTS cesta_precos`);
+    await db.exec(`CREATE VIEW cesta_precos AS
         SELECT p.id produto_id, p.nome produto, m.id mercado_id, m.nome mercado,
             u.price preco, u.quantity embalagem, u.matchedName oferta, u.collectedAt data_preco,
             u.productUrl link_produto, u.legacy historico_legado
-        FROM cesta b JOIN produtos p ON p.id=b.produto_id
+        FROM produtos p
         CROSS JOIN mercados m
         LEFT JOIN ultimos_precos u ON u.productId=p.id AND u.marketId=m.id
-        WHERE m.scraper_key IN ('continente','pingo-doce')`);
+        WHERE p.cesta_basica=1 AND m.scraper_key IN ('continente','pingo-doce')`);
     await db.exec(`CREATE VIEW IF NOT EXISTS ultimas_consultas AS
         SELECT * FROM (
             SELECT p.nome produto, m.nome mercado, c.data_coleta consultado_em,

@@ -17,40 +17,42 @@ export default function App() {
   const [selected, setSelected] = useState([])
   const [saved, setSaved] = useState([])
   const [comparison, setComparison] = useState(null)
-  const [collections, setCollections] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const dirty = [...selected].sort((a, b) => a - b).join() !== [...saved].sort((a, b) => a - b).join()
-  const running = busy === 'collect' || collections?.runs.some(run => run.status === 'em_andamento')
-  const timeZone = collections?.schedule.timeZone || 'Europe/Lisbon'
-  const date = value => value ? new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short', timeZone }).format(new Date(value)) : 'Ainda não coletado'
+  const date = value => value ? new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Lisbon' }).format(new Date(value)) : 'Ainda não coletado'
 
-  const refresh = useCallback(async () => {
-    const [result, status] = await Promise.all([api('/compare/basket'), api('/collections')])
+  const refresh = useCallback(async productIds => {
+    const query = new URLSearchParams({ productIds: productIds.join(',') })
+    const result = await api(`/compare/basket?${query}`)
     setComparison(result.data)
-    setCollections(status.data)
   }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [catalog, basket] = await Promise.all([api('/products'), api('/basket')])
+      const catalog = await api('/products')
       setProducts(catalog.data)
-      setSelected(basket.data.map(p => p.id))
-      setSaved(basket.data.map(p => p.id))
-      await refresh()
+      const stored = JSON.parse(window.localStorage.getItem('radar-basket-product-ids') || '[]')
+      if (!Array.isArray(stored) || stored.length > 100 || stored.some(id => !Number.isSafeInteger(id) || id <= 0)
+        || new Set(stored).size !== stored.length) throw new Error('A seleção salva neste navegador está inválida.')
+      const available = new Set(catalog.data.filter(product => product.basketOption).map(product => product.id))
+      const productIds = stored.filter(id => available.has(id))
+      setSelected(productIds)
+      setSaved(productIds)
+      await refresh(productIds)
     } catch (cause) { setError(cause.message || 'Não foi possível conectar à API.') }
     finally { setLoading(false) }
   }, [refresh])
 
   useEffect(() => { void load() }, [load])
   useEffect(() => {
-    const timer = setInterval(() => { refresh().catch(cause => setError(cause.message)) }, 15000)
+    const timer = setInterval(() => { refresh(saved).catch(cause => setError(cause.message)) }, 60000)
     return () => clearInterval(timer)
-  }, [refresh])
+  }, [refresh, saved])
   useEffect(() => {
     if (!notice || notice.startsWith('Consultando os mercados.')) return
     const timer = setTimeout(() => setNotice(''), 5000)
@@ -60,31 +62,20 @@ export default function App() {
   async function save() {
     setBusy('save'); setError(''); setNotice('')
     try {
-      const result = await api('/basket', { method: 'PUT', body: JSON.stringify({ productIds: selected }) })
-      setSaved(result.data.map(p => p.id))
-      setNotice('Cesta salva. O agendamento usará esta seleção.')
-      await refresh()
-    } catch (cause) { setError(cause.message) }
+      const productIds = [...selected]
+      window.localStorage.setItem('radar-basket-product-ids', JSON.stringify(productIds))
+      setSaved(productIds)
+      setNotice('Cesta salva neste navegador.')
+      await refresh(productIds)
+    } catch (cause) { setNotice(''); setError(cause.message) }
     finally { setBusy('') }
-  }
-  async function collect() {
-    setBusy('collect'); setError(''); setNotice('Consultando os mercados. A coleta pode levar alguns minutos.')
-    try {
-      const result = await api('/collections', { method: 'POST' })
-      setNotice(result.message)
-      await refresh()
-    } catch (cause) {
-      setNotice('')
-      setError(cause.message + ' Consulte o estado da coleta antes de tentar novamente.')
-      await refresh().catch(() => {})
-    } finally { setBusy('') }
   }
   function toggle(id) {
     setNotice('')
     setSelected(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])
   }
 
-  const options = products.filter(p => p.basketOption || selected.includes(p.id) || saved.includes(p.id))
+  const options = products.filter(p => p.basketOption)
   const winners = comparison?.markets.filter(m => comparison.cheapestMarketIds.includes(m.id)) || []
 
   return (
@@ -119,15 +110,15 @@ export default function App() {
               </fieldset>
               {!options.length && <p>Nenhum produto disponível. Verifique a inicialização da API.</p>}
               <button className="primary" onClick={save} disabled={!!busy || !dirty}>{busy === 'save' ? 'Salvando…' : 'Salvar cesta'}</button>
-              <p className="small muted">{dirty ? 'Há alterações por salvar.' : 'Seleção salva para as próximas coletas.'}</p>
+              <p className="small muted">{dirty ? 'Há alterações por salvar.' : 'Seleção salva neste navegador.'}</p>
             </aside>
 
             <section className="results" aria-label="Comparação de preços">
               <div className="results-header">
-                <div><h2>Onde sua cesta custa menos?</h2></div>
-                <button className="secondary" onClick={collect} disabled={!!busy || running || dirty || !saved.length}>{running ? 'Coleta em andamento…' : 'Consultar agora'}</button>
+                <h2>Onde sua cesta custa menos?</h2>
               </div>
-              {dirty ? <div className="panel empty"><h3>Salve sua nova seleção</h3><p>A comparação e as próximas coletas usarão os produtos salvos.</p></div> :
+              <p className="small muted">Os preços do Pingo Doce consideram uma localização de entrega configurada.</p>
+              {dirty ? <div className="panel empty"><h3>Salve sua nova seleção</h3><p>A comparação usará a seleção salva neste navegador.</p></div> :
                 !saved.length ? <div className="panel empty"><span className="empty-icon" aria-hidden="true">＋</span><h3>Sua economia começa na cesta</h3><p>Selecione os produtos ao lado e salve para começar a comparar.</p></div> :
                   !comparison ? <div className="panel empty">Não foi possível carregar a comparação.</div> : <>
                     <div className={winners.length ? 'verdict winner' : 'verdict'}>

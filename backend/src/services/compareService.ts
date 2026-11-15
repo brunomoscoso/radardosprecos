@@ -1,16 +1,34 @@
-import { withDB } from '../config/database';
+import { withDB, DatabaseConnection } from '../config/database';
 import { getBasket } from './basketService';
 import { findAllMarkets } from './marketService';
 import { findAllPrices } from './priceService';
+import { Product } from '../types/Product';
 
-// Calcula totais comparáveis usando os preços recentes e estados de coleta.
-export async function compareBasket(now = Date.now()) {
-    // One read transaction prevents mixing prices and statuses from different commits.
+export class ProductSelectionError extends Error { status = 400; }
+
+function validateProductIds(value: unknown): number[] {
+    const ids = typeof value === 'string'
+        ? value === '' ? [] : value.split(',').map(id => {
+            if (!/^[1-9]\d*$/.test(id)) throw new ProductSelectionError('productIds deve conter IDs inteiros positivos.');
+            return Number(id);
+        })
+        : value;
+    if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !Number.isSafeInteger(id) || id <= 0)
+        || new Set(ids).size !== ids.length) {
+        throw new ProductSelectionError('productIds deve conter até 100 IDs inteiros positivos e sem duplicados.');
+    }
+    return ids;
+}
+
+async function compareProducts(
+    resolveProducts: (db: DatabaseConnection) => Promise<Product[]>,
+    now: number,
+) {
     return withDB(async db => {
         await db.exec('BEGIN');
         try {
             const [products, allMarkets, prices, results] = await Promise.all([
-                getBasket(db), findAllMarkets(db), findAllPrices(db),
+                resolveProducts(db), findAllMarkets(db), findAllPrices(db),
                 db.all<{ productId: number; marketId: number; collectionId: number; status: string; error: string | null; date: string }[]>(`
                     SELECT productId,marketId,collectionId,status,error,date FROM (
                         SELECT r.produto_id productId,c.mercado_id marketId,c.id collectionId,r.status,r.erro error,c.data_coleta date,
@@ -51,4 +69,20 @@ export async function compareBasket(now = Date.now()) {
                 cheapestMarketIds: comparable ? markets.filter(m => m.total === min).map(m => m.id) : [] };
         } finally { await db.exec('ROLLBACK'); }
     });
+}
+
+export function compareBasket(now = Date.now()) {
+    return compareProducts(db => getBasket(db), now);
+}
+
+export function compareSelectedProducts(value: unknown, now = Date.now()) {
+    const ids = validateProductIds(value);
+    return compareProducts(async db => {
+        const catalog = await db.all<Product[]>(`SELECT id,nome name,categoria category,descricao description,cesta_basica basketOption
+            FROM produtos WHERE cesta_basica=1 ORDER BY nome`);
+        const byId = new Map(catalog.map(product => [product.id, product]));
+        if (ids.some(id => !byId.has(id))) throw new ProductSelectionError('Um ou mais produtos não estão disponíveis para seleção.');
+        const selected = new Set(ids);
+        return catalog.filter(product => selected.has(product.id));
+    }, now);
 }

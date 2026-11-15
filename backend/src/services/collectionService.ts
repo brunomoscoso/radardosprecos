@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { withDB } from '../config/database';
-import { getBasket, InputError } from './basketService';
+import { InputError } from './basketService';
+import { findAllProducts } from './productService';
 import { findAllMarkets } from './marketService';
 import { startCollection, saveScrapedData, failProduct, finishCollection } from './scraperPersistenceService';
 import { scrapeMercadoA } from '../scrapers/markets/mercadoA.scraper';
@@ -31,10 +32,10 @@ export async function recoverInterruptedRuns() {
         } catch (error) { await db.exec('ROLLBACK'); throw error; }
     });
 }
-export async function runCollection(origin = 'manual', scheduleKey?: string, adapters = scrapers) {
+export async function runCollection(origin = 'manual', scheduleKey?: string, adapters = scrapers, selectedProducts?: Awaited<ReturnType<typeof findAllProducts>>) {
     await recoverInterruptedRuns();
-    const products = await getBasket();
-    if (!products.length) throw new InputError('Selecione e salve pelo menos um produto antes de coletar.');
+    const products = selectedProducts ?? (await findAllProducts()).filter(product => product.basketOption);
+    if (!products.length) throw new InputError(selectedProducts ? 'Selecione pelo menos um produto antes de coletar.' : 'O catálogo não contém produtos disponíveis para coleta.');
     const runId = await withDB(async db => {
         await db.exec('BEGIN IMMEDIATE');
         try {
