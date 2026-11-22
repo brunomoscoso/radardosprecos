@@ -1,6 +1,7 @@
 // Renderiza a cesta salva, a comparação de preços e o estado das coletas.
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
+import { compareSelection, readBasket, MAX_QUANTITY } from './basket'
 import './App.css'
 
 const money = value => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(value)
@@ -17,46 +18,6 @@ async function fetchSnapshot() {
   return payload.comparison
 }
 
-function compareSelection(snapshot, productIds) {
-  const selectedIds = new Set(productIds)
-  const products = snapshot.products.filter(product => selectedIds.has(product.id))
-  const markets = snapshot.markets.map(market => {
-    const items = products.map(product => {
-      const item = market.items.find(candidate => candidate.product.id === product.id)
-      if (!item) throw new Error(`O snapshot não contém ${product.name} para ${market.name}.`)
-      return item
-    })
-    const complete = products.length > 0 && items.every(item => item.usable)
-    const subtotal = items.filter(item => item.usable).reduce((sum, item) => sum + Math.round(item.price.price * 100), 0) / 100
-    const savedItems = items.filter(item => item.price)
-    const savedSubtotal = savedItems.reduce((sum, item) => sum + Math.round(item.price.price * 100), 0) / 100
-    return {
-      ...market,
-      items,
-      missingProducts: items.filter(item => !item.usable).map(item => item.product),
-      complete,
-      subtotal,
-      savedSubtotal,
-      savedItemCount: savedItems.length,
-      total: complete ? subtotal : null,
-    }
-  })
-  const incompatibleProducts = products.filter(product => {
-    const quantities = markets
-      .map(market => market.items.find(item => item.product.id === product.id))
-      .filter(item => item?.usable)
-      .map(item => item.price.quantity)
-    return new Set(quantities).size > 1
-  })
-  const comparable = markets.length >= 2 && markets.every(market => market.complete) && incompatibleProducts.length === 0
-  const minimum = comparable ? Math.min(...markets.map(market => market.total)) : null
-  return {
-    products,
-    markets,
-    incompatibleProducts,
-    cheapestMarketIds: comparable ? markets.filter(market => market.total === minimum).map(market => market.id) : [],
-  }
-}
 
 function collectionErrorMessage(message) {
   if (/Executable doesn't exist/i.test(message)) return 'A última atualização falhou porque o navegador de coleta não estava instalado.'
@@ -74,13 +35,15 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const dirty = [...selected].sort((a, b) => a - b).join() !== [...saved].sort((a, b) => a - b).join()
+  const selectionKey = items => JSON.stringify([...items].sort((a, b) => a.id - b.id))
+  const dirty = selectionKey(selected) !== selectionKey(saved)
+  const unitCount = selected.reduce((sum, item) => sum + item.quantity, 0)
   const date = value => value ? new Intl.DateTimeFormat('pt-PT', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Lisbon' }).format(new Date(value)) : 'Ainda não coletado'
 
-  const refresh = useCallback(async productIds => {
-    const query = new URLSearchParams({ productIds: productIds.join(',') })
+  const refresh = useCallback(async selection => {
+    const query = new URLSearchParams({ productIds: selection.map(item => item.id).join(',') })
     const result = await api(`/compare/basket?${query}`)
-    setComparison(result.data)
+    setComparison(compareSelection(result.data, selection))
   }, [])
 
   const load = useCallback(async () => {
@@ -98,11 +61,9 @@ export default function App() {
         setSnapshot(publishedSnapshot)
         setProducts(availableProducts)
       }
-      const stored = JSON.parse(window.localStorage.getItem('radar-basket-product-ids') || '[]')
-      if (!Array.isArray(stored) || stored.length > 100 || stored.some(id => !Number.isSafeInteger(id) || id <= 0)
-        || new Set(stored).size !== stored.length) throw new Error('A seleção salva neste navegador está inválida.')
+      const stored = readBasket(window.localStorage)
       const available = new Set(availableProducts.filter(product => product.basketOption).map(product => product.id))
-      const productIds = stored.filter(id => available.has(id))
+      const productIds = stored.filter(item => available.has(item.id))
       setSelected(productIds)
       setSaved(productIds)
       if (publishedSnapshot) setComparison(compareSelection(publishedSnapshot, productIds))
@@ -140,7 +101,7 @@ export default function App() {
     setNotice('')
     try {
       const productIds = [...selected]
-      window.localStorage.setItem('radar-basket-product-ids', JSON.stringify(productIds))
+      window.localStorage.setItem('radar-basket-items', JSON.stringify(productIds))
       setSaved(productIds)
       setNotice('Cesta salva neste navegador.')
       if (import.meta.env.DEV) await refresh(productIds)
@@ -149,7 +110,13 @@ export default function App() {
   }
   function toggle(id) {
     setNotice('')
-    setSelected(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])
+    setSelected(current => current.some(item => item.id === id) ? current.filter(item => item.id !== id) : [...current, { id, quantity: 1 }])
+  }
+
+  function changeQuantity(id, quantity) {
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) return
+    setNotice('')
+    setSelected(current => current.map(item => item.id === id ? { ...item, quantity } : item))
   }
 
   const options = products.filter(p => p.basketOption)
@@ -172,18 +139,32 @@ export default function App() {
         {loading ? <div className="panel loading" role="status">Carregando sua cesta e os últimos preços…</div> : (
           <div className="workspace">
             <aside className="panel basket">
-              <div className="section-heading"><h2>Sua cesta básica</h2><span className="count">{selected.length}</span></div>
-              <p className="muted">Uma embalagem de cada produto selecionado.</p>
+              <div className="section-heading"><h2>Sua cesta básica</h2><span className="count">{unitCount}</span></div>
+              <p className="muted">Escolha quantas embalagens deseja de cada produto.</p>
               <div className="selection-tools">
-                <button className="text-button" onClick={() => setSelected(options.map(p => p.id))}>Selecionar todos</button>
+                <button className="text-button" onClick={() => setSelected(options.map(p => selected.find(item => item.id === p.id) || { id: p.id, quantity: 1 }))}>Selecionar todos</button>
                 <button className="text-button" onClick={() => setSelected([])}>Limpar</button>
               </div>
               <fieldset>
                 <legend className="sr-only">Produtos da cesta básica</legend>
-                {options.map(product => <label className="product-option" key={product.id}>
-                  <input type="checkbox" checked={selected.includes(product.id)} onChange={() => toggle(product.id)} />
-                  <span>{product.name}</span>
-                </label>)}
+                {options.map(product => {
+                  const item = selected.find(item => item.id === product.id)
+                  return <div className="product-row" key={product.id}>
+                    <label className="product-option">
+                      <input type="checkbox" checked={!!item} onChange={() => toggle(product.id)} />
+                      <span>{product.name}</span>
+                    </label>
+                    {item && <div className="quantity-control" role="group" aria-label={`Quantidade de ${product.name}`}>
+                      <button type="button" aria-label={`Diminuir quantidade de ${product.name}`} disabled={item.quantity <= 1} onClick={() => changeQuantity(product.id, item.quantity - 1)}>−</button>
+                      <label>
+                        <span className="sr-only">Quantidade de {product.name}</span>
+                        <input type="number" min="1" max={MAX_QUANTITY} step="1" value={item.quantity} onChange={event => changeQuantity(product.id, Number(event.target.value))} />
+                      </label>
+                      <button type="button" aria-label={`Aumentar quantidade de ${product.name}`} disabled={item.quantity >= MAX_QUANTITY} onClick={() => changeQuantity(product.id, item.quantity + 1)}>+</button>
+                      <span className="small muted">un.</span>
+                    </div>}
+                  </div>
+                })}
               </fieldset>
               {!options.length && <p>{import.meta.env.DEV ? 'Nenhum produto disponível. Verifique a inicialização da API.' : 'Nenhum produto disponível no snapshot publicado.'}</p>}
               <button className="primary" onClick={save} disabled={!dirty}>Salvar cesta</button>
@@ -207,11 +188,12 @@ export default function App() {
                       {comparison.markets.map(market => <article className={comparison.cheapestMarketIds.includes(market.id) ? 'panel market best' : 'panel market'} key={market.id}>
                         <div className="section-heading"><h3>{market.name}</h3><span className="tag">{market.complete ? 'Cesta completa' : 'Incompleta'}</span></div>
                         <div className="total">{market.complete ? money(market.total) : market.savedItemCount ? money(market.savedSubtotal) : '—'}</div>
-                        <p className="small muted">{market.complete ? 'Total de uma embalagem por item' : market.savedItemCount ? `Subtotal dos últimos preços salvos (${market.savedItemCount}/${market.items.length} itens) · não comparável` : 'Nenhum preço salvo para os itens selecionados'}</p>
+                        <p className="small muted">{market.complete ? 'Total para as quantidades selecionadas' : market.savedItemCount ? `Subtotal dos últimos preços salvos (${market.savedItemCount}/${market.items.length} itens) · não comparável` : 'Nenhum preço salvo para os itens selecionados'}</p>
                         {!market.complete && <p className="missing">Faltam preços válidos: {market.missingProducts.map(p => p.name).join(', ')}.</p>}
                         <ul className="price-list">{market.items.map(item => <li key={item.product.id}>
-                          <div className="price-line"><strong>{item.product.name}</strong><b>{item.price ? money(item.price.price) : 'Sem preço'}</b></div>
+                          <div className="price-line"><strong>{item.product.name}</strong><b>{item.price ? money(Math.round(item.price.price * 100) * item.units / 100) : 'Sem preço'}</b></div>
                           {item.price && <>
+                            <p className="small muted">{item.units} × {money(item.price.price)} por embalagem</p>
                             <p className="small muted">{item.price.legacy ? 'Preço histórico salvo' : 'Último preço salvo'} · {date(item.price.collectedAt)}</p>
                             {item.price.productUrl ? <a href={item.price.productUrl} target="_blank" rel="noreferrer">{item.price.matchedName || item.product.name}</a> : <span className="small">{item.price.matchedName || item.product.name}</span>}
                             <span className="small muted"> · {item.price.quantity || 'Embalagem não verificada'}</span>

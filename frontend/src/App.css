@@ -143,6 +143,38 @@ main {
   cursor:pointer
 }
 
+.quantity-control {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin:0 0 12px 31px
+}
+
+.quantity-control button,.quantity-control input {
+  border:1px solid #cad8cd;
+  border-radius:6px;
+  background:white;
+  color:#286449;
+  text-align:center;
+  min-height:42px
+}
+
+.quantity-control button {
+  width:34px;
+  flex-shrink:0
+}
+
+.quantity-control input {
+  width:60px
+}
+
+.count {
+  width:auto;
+  min-width:28px;
+  height:auto;
+  border-radius:14px
+}
+
 .primary,.secondary {
   border-radius:8px;
   padding:12px 18px;
@@ -376,6 +408,10 @@ main {
   }
   .product-option {
     font-size:.8rem
+  }
+  .quantity-control {
+    margin-left:0;
+    flex-wrap:wrap
   }
   .market-grid {
     grid-template-columns:1fr
