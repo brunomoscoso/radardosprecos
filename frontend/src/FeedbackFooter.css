@@ -1,0 +1,27 @@
+.feedback-footer {
+  display:flex;
+  border-top:1px solid #dce4dc;
+  justify-content:center;
+  padding:8px 0 24px;
+  font-size:.875rem
+}
+
+.feedback-link {
+  display:inline-flex;
+  align-items:center;
+  min-height:44px;
+  padding:8px;
+  color:#607166;
+  text-decoration:none;
+  text-underline-offset:3px
+}
+
+.feedback-link:hover,.feedback-link:focus-visible {
+  color:#256b52;
+  text-decoration:underline
+}
+
+.feedback-pending {
+  margin:0;
+  color:#607166
+}

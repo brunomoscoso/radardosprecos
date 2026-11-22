@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { compareSelection, readBasket, MAX_QUANTITY } from './basket'
+import FeedbackFooter from './FeedbackFooter'
 import './App.css'
 
 const money = value => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(value)
@@ -212,6 +213,7 @@ export default function App() {
           </div>
         )}
       </main>
+      <FeedbackFooter />
     </div>
   )
 }

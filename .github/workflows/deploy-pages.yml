@@ -47,6 +47,8 @@ jobs:
         run: npm run lint
       - name: Build frontend
         working-directory: frontend
+        env:
+          VITE_FEEDBACK_FORM_URL: ${{ vars.VITE_FEEDBACK_FORM_URL }}
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

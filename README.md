@@ -18,6 +18,7 @@ Site publicado: https://brunomoscoso.github.io/radardosprecos/
 - [Arquitetura do sistema](#arquitetura-do-sistema)
 - [Tecnologias utilizadas](#tecnologias-utilizadas)
 - [Funcionalidades](#funcionalidades)
+- [Formulário de feedback e avaliação](#formulário-de-feedback-e-avaliação)
 - [Regra de comparação](#regra-de-comparação)
 - [Segurança da aplicação](#segurança-da-aplicação)
 - [Boas práticas de engenharia de software](#boas-práticas-de-engenharia-de-software)
@@ -140,6 +141,7 @@ Em produção, o frontend lê `data/prices.json` relativo ao `base` configurado 
 | CSS | Layout responsivo e estados visuais |
 | localStorage | Persistência privada da cesta no navegador |
 | ESLint | Verificação estática do código frontend |
+| Google Forms | Recolha externa de feedback e avaliação |
 
 ### Infraestrutura e operação
 
@@ -183,6 +185,76 @@ Não é utilizado Playwright, Selenium ou outro navegador completo para os scrap
 - bloqueio de execuções concorrentes;
 - prevenção de execuções repetidas no mesmo horário agendado;
 - persistência do histórico sem apagar registros anteriores.
+
+## Formulário de feedback e avaliação
+
+O rodapé da aplicação apresenta o link **Avaliar o site**, que abre um formulário externo em uma nova aba. O formulário foi integrado ao projeto para recolher opiniões dos utilizadores sobre a usabilidade, apresentação visual e utilidade da comparação.
+
+O formulário utiliza o **Google Forms** e não é processado pelo backend Express nem armazenado no SQLite da aplicação.
+
+### Experiência do utilizador
+
+- o componente `FeedbackFooter` é apresentado em todas as páginas da interface;
+- o link abre em uma nova aba, mantendo a sessão atual da aplicação;
+- a navegação externa é protegida com os atributos `target="_blank"` e `rel="noopener noreferrer"`;
+- o formulário pode ser configurado para o ambiente local e para o ambiente publicado;
+- se o endereço configurado não estiver válido, a interface apresenta **Avaliação disponível em breve**;
+- o projeto não utiliza um modal embutido, evitando recolher respostas sem o contexto da plataforma Google Forms.
+
+### Arquitetura da integração
+
+```text
+Utilizador
+  -> Rodapé React (FeedbackFooter)
+  -> Validação da URL no frontend
+  -> Google Forms
+  -> Respostas geridas pela plataforma Google
+```
+
+A integração não envia os dados da cesta, produtos selecionados, preços ou identificadores internos da aplicação ao formulário. A única ação feita pelo frontend é redirecionar o utilizador para o endereço HTTPS configurado.
+
+O componente valida a URL antes de mostrar o link. São aceitos apenas:
+
+- links HTTPS do domínio `docs.google.com`, no formato de visualização de um Google Forms;
+- links HTTPS encurtados do domínio `forms.gle`;
+- URLs sem nome de utilizador ou palavra-passe.
+
+URLs HTTP, domínios externos ou links de edição não são apresentados.
+
+### Configuração
+
+No desenvolvimento local, configure em `frontend/.env`:
+
+```dotenv
+VITE_FEEDBACK_FORM_URL=https://docs.google.com/forms/d/e/SEU-ID/viewform
+```
+
+No GitHub Pages, a URL deve ser definida em **Settings → Secrets and variables → Actions → Variables**, com o nome:
+
+```text
+VITE_FEEDBACK_FORM_URL
+```
+
+O workflow passa esta variável para o build do Vite no passo de compilação do frontend:
+
+```yaml
+env:
+  VITE_FEEDBACK_FORM_URL: ${{ vars.VITE_FEEDBACK_FORM_URL }}
+```
+
+O valor deve ser o link de **resposta** ou de visualização do formulário, não o link de edição utilizado pela pessoa proprietária do formulário.
+
+O projeto possui um formulário padrão configurado no código como fallback. Para uso público ou acadêmico, recomenda-se definir um formulário próprio na variável de ambiente e desativar a recolha de endereço eletrónico no Google Forms caso não seja necessária.
+
+### Privacidade e consentimento
+
+- o envio das respostas ocorre diretamente na plataforma Google;
+- o projeto não recebe nem persiste respostas no banco SQLite;
+- não são enviados dados técnicos da cesta para o Google Forms;
+- a política de privacidade do formulário deve ser configurada pelo responsável académico do projeto;
+- a recolha de dados pessoais deve seguir o consentimento informado e as regras aplicáveis à universidade;
+- o formulário não deve solicitar dados desnecessários ou informações sensíveis;
+- o projeto não controla cookies ou métricas configuradas pelo Google Forms.
 
 ## Regra de comparação
 
@@ -370,6 +442,8 @@ As diretivas principais são:
 - `backend/tests/`: testes de integração e HTTP;
 - `frontend/src/App.jsx`: gestão da cesta e da comparação;
 - `frontend/src/api.js`: acesso à API local;
+- `frontend/src/FeedbackFooter.jsx`: validação e apresentação do link de feedback;
+- `frontend/src/FeedbackFooter.css`: estilos e estados de acessibilidade do componente;
 - `.github/workflows/deploy-pages.yml`: pipeline de publicação.
 
 ## Modelo de dados
@@ -495,6 +569,7 @@ A URL normalmente será `http://localhost:5173`.
 | Variável | Padrão | Finalidade |
 |---|---|---|
 | `VITE_API_URL` | `http://localhost:3000` | Endereço da API no modo local |
+| `VITE_FEEDBACK_FORM_URL` | formulário padrão configurado no componente | Link HTTPS do Google Forms usado no rodapé |
 
 ## Publicação no GitHub Pages
 
